@@ -127,13 +127,20 @@ std::shared_ptr<FutureIValue> toFutureIValue(
     std::shared_ptr<FutureIValue> fv(new FutureIValue(), DeleteFutureIValue);
 
     fm->addCallback([fv](const FutureMessage& fm) {
-      // Don't need to acquire GIL here, as toPyObj acquires GIL
-      // when creating the py::object
       if (fm.hasError()) {
         fv->setError(*fm.error());
       } else {
-        fv->markCompleted(
-            jit::toIValue(toPyObj(fm.constValue()), PyObjectType::get()));
+        IValue value;
+        // Don't need to acquire GIL here, as toPyObj acquires GIL
+        // when creating the py::object
+        py::object obj = toPyObj(fm.constValue());
+        {
+          // Need GIL here as jit::toIValue() would create a copy of the
+          // py::object
+          pybind11::gil_scoped_acquire ag;
+          value = jit::toIValue(std::move(obj), PyObjectType::get());
+        }
+        fv->markCompleted(std::move(value));
       }
     });
 
